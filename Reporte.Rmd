@@ -4,22 +4,17 @@ author: "Armando_Trapaga"
 date: "2025-02-01"
 output: html_document
 ---
-
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
-```
-
-## R Markdown
-
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
-
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+# Librerias usadas
 
 ```{r message=FALSE}
 library("recount3")
 library("edgeR")
 library("ggplot2")
+library("limma")
+library("pheatmap")
 ```
+
+# Creacion del objeto 
 
 ```{r message=FALSE}
 data <- recount3::create_rse_manual(
@@ -116,11 +111,63 @@ ggplot(as.data.frame(colData(data)), aes(y = assigned_gene_prop, x = sra_attribu
 ```
 
 ```{r}
-mod <- model.matrix(~ sra_attribute.age + $sra_attribute.genotype + sra_attribute.tonotopic_location + assigned_gene_prop,
+ggplot(as.data.frame(colData(data)), aes(y = assigned_gene_prop, x = sra_attribute.genotype)) +
+    geom_boxplot() +
+    theme_bw(base_size = 20) +
+    ylab("Assigned Gene Prop") +
+    xlab("Age Group")
+```
+
+
+```{r}
+mod <- model.matrix(~ sra_attribute.age + sra_attribute.genotype + sra_attribute.tonotopic_location + assigned_gene_prop,
     data = colData(data)
 )
 ```
 
 ```{r echo=FALSE}
-colnames(mat)
+colnames(mod)
 ```
+
+```{r}
+vGene <- voom(dge, mod, plot = TRUE)
+```
+
+```{r}
+eb_results <- eBayes(lmFit(vGene))
+
+de_results <- topTable(
+    eb_results,
+    coef = 2,
+    number = nrow(data),
+    sort.by = "none"
+)
+dim(de_results)
+```
+
+```{r}
+volcanoplot(eb_results, coef = 2, highlight = 3, names = de_results$gene_name)
+```
+
+```{r}
+## Extraer valores de los genes de interés
+exprs_heatmap <- vGene$E[rank(de_results$adj.P.Val) <= 50, ]
+
+## Creemos una tabla con información de las muestras
+## y con nombres de columnas más amigables
+df <- as.data.frame(colData(data)[, c("sra_attribute.age", "sra_attribute.genotype", "sra_attribute.tonotopic_location")])
+colnames(df) <- c("AgeGroup", "Experiment", "Location")
+
+pheatmap(
+    exprs_heatmap,
+    cluster_rows = TRUE,
+    cluster_cols = TRUE,
+    show_rownames = FALSE,
+    show_colnames = FALSE,
+    annotation_col = df
+)
+```
+
+
+
+
