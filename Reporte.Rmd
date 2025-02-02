@@ -1,0 +1,126 @@
+---
+title: "Reporte"
+author: "Armando_Trapaga"
+date: "2025-02-01"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r message=FALSE}
+library("recount3")
+library("edgeR")
+library("ggplot2")
+```
+
+```{r message=FALSE}
+data <- recount3::create_rse_manual(
+     project = "SRP149148",
+     project_home = "data_sources/sra",
+     organism = "mouse",
+     annotation = "gencode_v23",
+     type = "gene"
+)
+assay(data, "counts") <- compute_read_counts(data)
+```
+
+```{r}
+data <- expand_sra_attributes(data)
+```
+
+```{r}
+ colData(data)[
+     ,
+     grepl("^sra_attribute", colnames(colData(data)))
+ ]
+```
+
+```{r}
+data$sra_attribute.age  <- as.factor(data$sra_attribute.age)
+
+data$sra_attribute.genotype <- as.factor(data$sra_attribute.genotype)
+
+data$sra_attribute.tonotopic_location <- as.factor(data$sra_attribute.tonotopic_location)
+
+```
+
+```{r message=FALSE}
+summary(as.data.frame(colData(data)[
+    ,
+    grepl("^sra_attribute.[age|genotype|tonotopic_location]", colnames(colData(data)))
+]))
+```
+
+```{r}
+data$assigned_gene_prop <- data$recount_qc.gene_fc_count_all.assigned / data$recount_qc.gene_fc_count_all.total
+
+summary(data$assigned_gene_prop)
+```
+
+```{r message=FALSE}
+with(colData(data), plot(assigned_gene_prop, sra_attribute.age))
+```
+
+```{r message=FALSE}
+hist(data$assigned_gene_prop)
+abline(v=0.6, col="red", lwd=2)
+```
+
+```{r message=FALSE}
+table(data$assigned_gene_prop < 0.6)
+```
+
+```{r message=FALSE}
+table(data$assigned_gene_prop < 0.6)
+```
+
+
+```{r}
+unfiltered_data <- data
+
+data <- data[,data$assigned_gene_prop > 0.6]
+
+data <- data[edgeR::filterByExpr(assay(data,"counts")), ]
+```
+
+```{r echo=FALSE}
+dim(data)
+
+round(nrow(data) / nrow(unfiltered_data) * 100, 2)
+```
+
+```{r}
+
+dge <- DGEList(
+    counts = assay(data, "counts"),
+    genes = rowData(data)
+)
+dge <- calcNormFactors(dge)
+
+```
+
+```{r}
+ggplot(as.data.frame(colData(data)), aes(y = assigned_gene_prop, x = sra_attribute.age)) +
+    geom_boxplot() +
+    theme_bw(base_size = 20) +
+    ylab("Assigned Gene Prop") +
+    xlab("Age Group")
+```
+
+```{r}
+mod <- model.matrix(~ sra_attribute.age + $sra_attribute.genotype + sra_attribute.tonotopic_location + assigned_gene_prop,
+    data = colData(data)
+)
+```
+
+```{r echo=FALSE}
+colnames(mat)
+```
