@@ -3,13 +3,13 @@ title: "Reporte"
 author: "Armando_Trapaga"
 date: "2025-02-01"
 output:
-  pdf_document:
-    toc: true
-    toc_depth: '3'
   html_document:
     toc: true
     toc_depth: 3
     toc_float: true
+  pdf_document:
+    toc: true
+    toc_depth: '3'
 bibliography: References.bib
 ---
 
