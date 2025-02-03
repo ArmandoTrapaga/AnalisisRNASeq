@@ -2,9 +2,22 @@
 title: "Reporte"
 author: "Armando_Trapaga"
 date: "2025-02-01"
-output: html_document
+output:
+  pdf_document:
+    toc: true
+    toc_depth: '3'
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float: true
+bibliography: References.bib
 ---
-# Librerias usadas
+
+# Impact of Lack of Glutamatergic Activation on Molecular Heterogeneity in Spiral Ganglion Neurons in the Mouse Cochlea
+
+## Data processing
+
+### Libraries
 
 ```{r message=FALSE}
 library("recount3")
@@ -12,9 +25,12 @@ library("edgeR")
 library("ggplot2")
 library("limma")
 library("pheatmap")
+library("RColorBrewer")
 ```
 
-# Creacion del objeto 
+### Creating RangedSummarizedExperiment object
+
+The data was recovered from the study *"Single-cell RNA-seq of spiral ganglion neurons from wildtype and Vglut3-/- mice"* in recount3. The study investigates the molecular heterogeneity of spiral ganglion neurons in the mouse cochlea, comparing two genetic backgrounds: **wildtype and Vglut3-/-**. Individual neurons were analyzed using the Smart-seq2 approach and the NextSeq platform, with bioinformatic analysis conducted in R.
 
 ```{r message=FALSE}
 data <- recount3::create_rse_manual(
@@ -26,15 +42,14 @@ data <- recount3::create_rse_manual(
 )
 assay(data, "counts") <- compute_read_counts(data)
 ```
-
+### Data wrangling
+Before analyzing the data, it is necessary to restructure it, correct any incorrect values, and transform variables. These steps must be completed prior to starting the analysis.
 ```{r}
 data <- expand_sra_attributes(data)
-```
 
-```{r}
- colData(data)[
-     ,
-     grepl("^sra_attribute", colnames(colData(data)))
+colData(data)[
+   ,
+   grepl("^sra_attribute", colnames(colData(data)))
  ]
 ```
 
@@ -60,8 +75,12 @@ data$assigned_gene_prop <- data$recount_qc.gene_fc_count_all.assigned / data$rec
 summary(data$assigned_gene_prop)
 ```
 
+### Visualizing Transformed Data
+
+To understand the nature of the data, we need to visualize it to determine if filtering is necessary.
+
 ```{r message=FALSE}
-with(colData(data), plot(assigned_gene_prop, sra_attribute.age))
+with(colData(data), plot(assigned_gene_prop, sra_attribute.genotype))
 ```
 
 ```{r message=FALSE}
@@ -77,6 +96,9 @@ table(data$assigned_gene_prop < 0.6)
 table(data$assigned_gene_prop < 0.6)
 ```
 
+### Data filtering
+
+After visualizing the data, we observed a set of genes with poor quality compared to others. Therefore, we need to filter these genes.
 
 ```{r}
 unfiltered_data <- data
@@ -86,11 +108,17 @@ data <- data[,data$assigned_gene_prop > 0.6]
 data <- data[edgeR::filterByExpr(assay(data,"counts")), ]
 ```
 
+After filter we have: 
+ 
 ```{r echo=FALSE}
 dim(data)
 
 round(nrow(data) / nrow(unfiltered_data) * 100, 2)
 ```
+
+### Data Normalize
+
+Normalizing RNAseq data is essential for obtaining accurate and comparable results. During sequencing, technical variations, such as differences in sequencing depth between samples or batch effects, can introduce **biases**. Normalization corrects these technical variations, allowing observed differences in gene expression to reflect true biological variations.
 
 ```{r}
 
@@ -102,25 +130,34 @@ dge <- calcNormFactors(dge)
 
 ```
 
+## Expression data analysis
+
+### Data distribution 
+
 ```{r}
-ggplot(as.data.frame(colData(data)), aes(y = assigned_gene_prop, x = sra_attribute.age)) +
+ggplot(as.data.frame(colData(data)), aes(y = assigned_gene_prop, x = sra_attribute.genotype, fill=sra_attribute.genotype)) +
+    geom_violin(trim = FALSE, alpha= 0.5 ) +
+    geom_boxplot(width = 0.3) +
+    theme_bw(base_size = 20) +
+    ylab("Assigned Gene Prop") +
+    xlab("Genotype Group")
+```
+
+```{r}
+ggplot(as.data.frame(colData(data)), aes(y = assigned_gene_prop, x = sra_attribute.age, fill=sra_attribute.age)) +
+    geom_violin(trim = FALSE, alpha= 0.5 ) +
     geom_boxplot() +
     theme_bw(base_size = 20) +
     ylab("Assigned Gene Prop") +
     xlab("Age Group")
 ```
 
-```{r}
-ggplot(as.data.frame(colData(data)), aes(y = assigned_gene_prop, x = sra_attribute.genotype)) +
-    geom_boxplot() +
-    theme_bw(base_size = 20) +
-    ylab("Assigned Gene Prop") +
-    xlab("Age Group")
-```
+### Statistical model
 
+To continue its necesary to create a statistical model
 
 ```{r}
-mod <- model.matrix(~ sra_attribute.age + sra_attribute.genotype + sra_attribute.tonotopic_location + assigned_gene_prop,
+mod <- model.matrix(~ sra_attribute.genotype + sra_attribute.age + sra_attribute.tonotopic_location + assigned_gene_prop,
     data = colData(data)
 )
 ```
@@ -129,32 +166,35 @@ mod <- model.matrix(~ sra_attribute.age + sra_attribute.genotype + sra_attribute
 colnames(mod)
 ```
 
+### Performing expression data analysis
+
+When we have the model, its time to perform an empirical Bayesian analysis after our gene expression analysis to construct a full statiscal analysis of the results, we use *"sra_attribute.genotypeWildtype"* as our coeficient for the analysis.
+
 ```{r}
 vGene <- voom(dge, mod, plot = TRUE)
-```
 
-```{r}
 eb_results <- eBayes(lmFit(vGene))
 
-de_results <- topTable(
+results <- topTable(
     eb_results,
     coef = 2,
     number = nrow(data),
     sort.by = "none"
 )
-dim(de_results)
+dim(results)
 ```
 
+### Visualizing expression data
+
 ```{r}
-volcanoplot(eb_results, coef = 2, highlight = 3, names = de_results$gene_name)
+volcanoplot(eb_results, coef = 2, highlight = 3, names = results$gene_name)
 ```
 
-```{r}
-## Extraer valores de los genes de interés
-exprs_heatmap <- vGene$E[rank(de_results$adj.P.Val) <= 50, ]
+### Visualizing Data Clusters
 
-## Creemos una tabla con información de las muestras
-## y con nombres de columnas más amigables
+```{r}
+exprs_heatmap <- vGene$E[rank(results$adj.P.Val) <= 50, ]
+
 df <- as.data.frame(colData(data)[, c("sra_attribute.age", "sra_attribute.genotype", "sra_attribute.tonotopic_location")])
 colnames(df) <- c("AgeGroup", "Experiment", "Location")
 
@@ -168,6 +208,39 @@ pheatmap(
 )
 ```
 
+### Visualizing multidimensional scaling
+
+```{r warning=FALSE}
+col.group <- df$Experiment
+levels(col.group) <- brewer.pal(nlevels(col.group), "Set1")
+
+col.group <- as.character(col.group)
+
+
+plotMDS(vGene$E, labels = df$Experiment, col = col.group)
+```
+
+```{r warning=FALSE}
+col.group <- df$AgeGroup
+levels(col.group) <- brewer.pal(nlevels(col.group), "Set1")
+
+col.group <- as.character(col.group)
+
+plotMDS(vGene$E, labels = df$AgeGroup, col = col.group)
+```
 
 
 
+## Results 
+
+In this study two genotypes were compared, the wildtype and Vglut3-/-, which lacks the vesicular glutamate transporter 3 (VGLUT3), essential for excitatory neurotransmission in these neurons. The results indicate that the absence of Vglut3 causes significant changes in the gene expression of spiral ganglion neurons, affecting their activity and possibly their auditory function[@shrestha_2018]. Specifically, the genes Gm27000, Rps2-ps1, and Gm13456 showed differential expression:
+
+- Gm27000 and Gm13456 may be involved in mechanisms of synaptic plasticity and adaptive response to the lack of excitatory neurotransmission or maybe be realted to synaptic stability or neuronal differentiation[@difruscio_1998].
+
+- Rps2-ps1, a pseudogene related to ribosomal protein synthesis, may be altering protein translation and neuronal homeostasis[@harris_2012].
+
+Therefore, we can conclude that these changes were primarily observed as a result of the genotype and not due to age or location.
+
+These findings suggest that Vglut3 is not only crucial for neurotransmission in the spiral ganglion but also regulates the expression of key genes for neuronal function. Its absence could affect synaptic connectivity and the ability of these neurons to process auditory signals, which would have implications for sound perception and neuronal plasticity in the cochlea.
+
+# References
